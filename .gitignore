@@ -1,0 +1,54 @@
+# ---------- Secrets / config ----------
+accounts.csv
+.env
+.env.*
+!.env.example
+
+# ---------- Account data (sessions, logs, per-account queues) ----------
+accounts/
+medias/
+
+# ---------- Python ----------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+
+# ---------- Logs ----------
+*.log
+logs/
+
+# ---------- OS junk ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Editors / IDEs ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---------- Media / temp files (in case anything lands outside medias/) ----------
+*.mp4
+*.mov
+*.m4v
+*.thumbnail.jpg
+!medias/**  # keep this if you ever want to track sample/demo media selectively — otherwise delete this line
+
+# ---------- Instagrapi / session artifacts ----------
+session.json
+*.session.json
+
+# ---------- Caches ----------
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.cache
