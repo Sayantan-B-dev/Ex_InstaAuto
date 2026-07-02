@@ -6,6 +6,7 @@ accounts.csv
 
 # ---------- Account data (sessions, logs, per-account queues) ----------
 accounts/
+sessions/
 medias/
 
 # ---------- Python ----------
