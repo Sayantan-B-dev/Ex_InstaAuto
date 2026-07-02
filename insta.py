@@ -254,16 +254,19 @@ def login_account(row):
 
     cl = Client()
 
-    def login_handler(challenge):
-        logger.warning(f"Received challenge: {challenge.get('redirect_uri', 'Unknown')}")
-        logger.error("Login challenge requires manual intervention - please complete verification")
-        raise Exception(
-            "Login challenge detected. Please complete the verification manually. "
-            "This is often due to 2FA or account security features."
-        )
+    def challenge_handler(username, choice):
+        logger.warning(f"Challenge for {username} — verification sent via {choice}")
+        log_warn(f"[{account_id}] CHALLENGE — verification code sent via {choice}")
+        code = input(f"[{account_id}] Enter the 6-digit code sent to {username}: ").strip()
+        return code
 
-    cl.challenge_code_handler = login_handler
-    cl.change_password_handler = login_handler
+    def password_handler(username):
+        logger.warning(f"Password change required for {username}")
+        log_warn(f"[{account_id}] Instagram requires a new password")
+        return input(f"[{account_id}] Enter new password for {username}: ").strip()
+
+    cl.challenge_code_handler = challenge_handler
+    cl.change_password_handler = password_handler
     proxy = (row.get("proxy") or "").strip()
     if proxy:
         cl.set_proxy(proxy)
@@ -337,6 +340,14 @@ def mark_as_posted(account_id, target_row):
             row["posted"] = "yes"
             break
     write_posts(account_id, rows)
+
+
+def cleanup_session(account_id):
+    session_path = os.path.join(SESSIONS_DIR, f"{account_id}_session.json")
+    if os.path.exists(session_path):
+        os.remove(session_path)
+        get_account_logger(account_id).info("Session deleted")
+        log_step(f"[{account_id}] Session deleted.")
 
 
 # ---------------- MEDIA / POSTING ----------------
@@ -551,6 +562,7 @@ def run_due_posts():
                 log_error(f"[{account_id}] Unexpected error while posting: {e}")
                 get_account_logger(account_id).error(f"Unexpected error while posting: {e}")
             finally:
+                cleanup_session(account_id)
                 state["next_run"] = next_run_datetime(state["post_time"])
                 log_info(f"[{account_id}] Next post rescheduled for "
                          f"{state['next_run'].strftime('%Y-%m-%d %H:%M')}.")
@@ -558,32 +570,41 @@ def run_due_posts():
 
 
 def run_instant_mode():
-    """Ignore all scheduled times — post the next queued item for every account right now,
-    sequentially. Each account is wrapped in its own try/except so one account's failure
-    (bad file, expired session, upload error, etc.) never stops the run for the rest —
-    every account in accounts.csv is always attempted."""
-    section("Instant mode — skipping all scheduled times", style="bold yellow")
-    log_info("Posting the next queued item for each account, one after another.\n")
+    """Process accounts one at a time: login → post → cleanup, then move to next.
+    Each account is completely independent — as if the previous never existed."""
+    section("Instant mode — one account at a time", style="bold yellow")
 
-    if not account_state:
-        log_warn("No accounts are logged in — check accounts.csv (see diagnostic above).")
+    rows = read_accounts()
+    if not rows:
+        log_warn("No enabled accounts found in accounts.csv.")
         return
 
-    for account_id, state in account_state.items():
+    for row in rows:
+        account_id = row["account_id"].strip()
+        ensure_account_dirs(account_id)
         logger = get_account_logger(account_id)
+
+        section(f"Processing {account_id}", style="bold blue")
+        cl = login_account(row)
+        if cl is None:
+            log_warn(f"[{account_id}] Login failed — skipping.")
+            continue
+
         try:
-            row = get_next_post(account_id)
-            if row is None:
+            post_row = get_next_post(account_id)
+            if post_row is None:
                 log_warn(f"[{account_id}] No unposted rows left in {posts_csv_path(account_id)} — skipping.")
                 logger.info(f"No unposted rows left in {posts_csv_path(account_id)}.")
-                continue
-            ok = post_media(account_id, state["client"], row["media_path"], row["caption"])
-            if ok:
-                mark_as_posted(account_id, row)
+            else:
+                ok = post_media(account_id, cl, post_row["media_path"], post_row["caption"])
+                if ok:
+                    mark_as_posted(account_id, post_row)
         except Exception as e:
-            log_error(f"[{account_id}] Unexpected error during instant post — continuing with next account: {e}")
-            logger.error(f"Unexpected error during instant post: {e}")
-            continue
+            log_error(f"[{account_id}] Error: {e}")
+            logger.error(f"Error: {e}")
+        finally:
+            cleanup_session(account_id)
+            log_step(f"[{account_id}] Done — session cleaned up.")
 
     log_success("\nInstant run complete for all accounts.")
 
@@ -608,7 +629,6 @@ if __name__ == "__main__":
     diagnose_accounts_csv()
 
     if args.instant:
-        sync_accounts()
         run_instant_mode()
         sys.exit(0)
 

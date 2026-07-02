@@ -1,0 +1,25 @@
+InstaAuto/
+├── logs/
+│   ├── account1.log
+│   ├── account1_activity.log
+│   ├── account2.log
+│   └── account2_activity.log
+├── medias/
+│   ├── images/
+│   │   ├── account1/
+│   │   └── account2/
+│   └── videos/
+│       ├── account1/
+│       │   ├── 1.mp4
+│       │   ├── 1.mp4.thumbnail.jpg
+│       │   └── 1.thumbnail.jpg
+│       └── account2/
+│           └── 1.mp4
+├── posts/
+│   ├── account1_posts.csv
+│   └── account2_posts.csv
+├── sessions/
+├── .gitignore
+├── accounts.csv
+├── insta.py
+└── tree.py
