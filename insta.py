@@ -24,7 +24,9 @@ from rich import box
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ACCOUNTS_CSV = os.path.join(BASE_DIR, "accounts.csv")
-ACCOUNTS_DIR = os.path.join(BASE_DIR, "accounts")
+POSTS_DIR = os.path.join(BASE_DIR, "posts")
+SESSIONS_DIR = os.path.join(BASE_DIR, "sessions")
+LOGS_DIR = os.path.join(BASE_DIR, "logs")
 MEDIAS_DIR = os.path.join(BASE_DIR, "medias")
 
 CHECK_INTERVAL_SECONDS = 1  # dashboard refresh / accounts.csv re-read interval
@@ -78,7 +80,7 @@ def section(title, style="bold magenta"):
 # ---------------- PER-ACCOUNT FILE LOGGING ----------------
 
 def get_account_logger(account_id):
-    """Each account gets its own persistent log file at accounts/<account_id>/activity.log,
+    """Each account gets its own persistent log file at logs/<account_id>.log,
     independent of the live console dashboard, so history survives across runs."""
     if account_id in account_loggers:
         return account_loggers[account_id]
@@ -88,7 +90,8 @@ def get_account_logger(account_id):
     logger.propagate = False
 
     if not logger.handlers:
-        log_path = os.path.join(ACCOUNTS_DIR, f"{account_id}_activity.log")
+        os.makedirs(LOGS_DIR, exist_ok=True)
+        log_path = os.path.join(LOGS_DIR, f"{account_id}.log")
         handler = logging.FileHandler(log_path, encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
         logger.addHandler(handler)
@@ -185,15 +188,15 @@ def diagnose_accounts_csv():
             if not (row.get(field) or "").strip():
                 log_warn(f"Row {i} ('{account_id}'): '{field}' column is empty.")
 
-    # Cross-check against folders that already exist under accounts/
-    if os.path.isdir(ACCOUNTS_DIR):
+    # Cross-check against folders that already exist under posts/
+    if os.path.isdir(POSTS_DIR):
         existing_folders = {
-            name for name in os.listdir(ACCOUNTS_DIR)
-            if os.path.isdir(os.path.join(ACCOUNTS_DIR, name))
+            name for name in os.listdir(POSTS_DIR)
+            if os.path.isdir(os.path.join(POSTS_DIR, name))
         }
         orphaned = existing_folders - set(seen_ids.keys())
         for folder_id in sorted(orphaned):
-            posts_path = os.path.join(ACCOUNTS_DIR, folder_id, "posts.csv")
+            posts_path = os.path.join(POSTS_DIR, folder_id, "posts.csv")
             has_queue = os.path.isfile(posts_path) and len(read_posts(folder_id)) > 0
             if has_queue:
                 log_error(
@@ -213,7 +216,7 @@ def diagnose_accounts_csv():
 # ---------------- PATH HELPERS ----------------
 
 def account_dir(account_id):
-    return ACCOUNTS_DIR
+    return POSTS_DIR
 
 
 def account_image_dir(account_id):
@@ -225,16 +228,18 @@ def account_video_dir(account_id):
 
 
 def ensure_account_dirs(account_id):
-    os.makedirs(ACCOUNTS_DIR, exist_ok=True)
+    os.makedirs(POSTS_DIR, exist_ok=True)
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
     os.makedirs(account_image_dir(account_id), exist_ok=True)
     os.makedirs(account_video_dir(account_id), exist_ok=True)
-    posts_path = os.path.join(ACCOUNTS_DIR, f"{account_id}_posts.csv")
+    posts_path = os.path.join(POSTS_DIR, f"{account_id}_posts.csv")
     if not os.path.isfile(posts_path):
         with open(posts_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=POST_FIELDNAMES)
             writer.writeheader()
         log_step(
-            f"[{account_id}] First time seeing this account — created its {account_id}_posts.csv and "
+            f"[{account_id}] First time seeing this account — created {posts_path} and "
             f"medias/images/{account_id} + medias/videos/{account_id} folders."
         )
         get_account_logger(account_id).info("Initialized account folders and posts file")
@@ -245,7 +250,7 @@ def ensure_account_dirs(account_id):
 def login_account(row):
     account_id = row["account_id"].strip()
     logger = get_account_logger(account_id)
-    session_path = os.path.join(ACCOUNTS_DIR, f"{account_id}_session.json")
+    session_path = os.path.join(SESSIONS_DIR, f"{account_id}_session.json")
 
     cl = Client()
 
@@ -300,7 +305,7 @@ def login_account(row):
 # ---------------- PER-ACCOUNT POST QUEUE ----------------
 
 def posts_csv_path(account_id):
-    return os.path.join(ACCOUNTS_DIR, f"{account_id}_posts.csv")
+    return os.path.join(POSTS_DIR, f"{account_id}_posts.csv")
 
 
 def read_posts(account_id):
@@ -536,8 +541,8 @@ def run_due_posts():
                 section(f"Posting time reached for {account_id}", style="bold green")
                 row = get_next_post(account_id)
                 if row is None:
-                    log_warn(f"[{account_id}] No unposted rows left in posts.csv — nothing to post today.")
-                    get_account_logger(account_id).info("No unposted rows left — nothing to post today.")
+                    log_warn(f"[{account_id}] No unposted rows left in {posts_csv_path(account_id)} — nothing to post today.")
+                    get_account_logger(account_id).info(f"No unposted rows left in {posts_csv_path(account_id)}.")
                 else:
                     ok = post_media(account_id, state["client"], row["media_path"], row["caption"])
                     if ok:
@@ -569,8 +574,8 @@ def run_instant_mode():
         try:
             row = get_next_post(account_id)
             if row is None:
-                log_warn(f"[{account_id}] No unposted rows left in posts.csv — skipping.")
-                logger.info("No unposted rows left — skipping.")
+                log_warn(f"[{account_id}] No unposted rows left in {posts_csv_path(account_id)} — skipping.")
+                logger.info(f"No unposted rows left in {posts_csv_path(account_id)}.")
                 continue
             ok = post_media(account_id, state["client"], row["media_path"], row["caption"])
             if ok:
@@ -593,10 +598,10 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    os.makedirs(ACCOUNTS_DIR, exist_ok=True)
+    os.makedirs(POSTS_DIR, exist_ok=True)
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
     os.makedirs(MEDIAS_DIR, exist_ok=True)
-
-    console.print(f"[bold magenta]{BANNER}[/bold magenta]")
     log_info("Dynamic multi-account scheduler starting up.")
     log_info("Edit accounts.csv anytime — new rows log in automatically, removed rows pause.\n")
 
